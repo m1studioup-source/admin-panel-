@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APKVISION Admin Panel - Secure</title>
+
+    <!-- Firebase Compatibility SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+        body { background: #121212; color: #fff; padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        .container { max-width: 800px; width: 100%; display: none; }
+        .container.active { display: block; }
+        
+        /* Login Overlay Styles */
+        #login-overlay { position: fixed; inset: 0; background: #121212; display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 20px; }
+        .login-card { background: #1e1e1e; padding: 30px; border-radius: 8px; width: 100%; max-width: 400px; border: 1px solid #333; box-shadow: 0 8px 16px rgba(0,0,0,0.5); }
+        .login-card h2 { color: #e52d42; margin-bottom: 20px; text-align: center; }
+
+        h1 { margin-bottom: 20px; color: #e52d42; display: flex; justify-content: space-between; align-items: center; }
+        .logout-btn { background: #333; width: auto; padding: 6px 12px; font-size: 12px; cursor: pointer; border-radius: 4px; color: #fff; border: none; }
+        
+        .card { background: #1e1e1e; padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #333; }
+        input, select, textarea { width: 100%; padding: 10px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #444; background: #2a2a2a; color: #fff; }
+        button { width: 100%; padding: 12px; background: #e52d42; color: #fff; border: none; font-weight: bold; border-radius: 4px; cursor: pointer; }
+        button:hover { opacity: 0.9; }
+
+        .item-row { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #333; position: relative; }
+        
+        /* 3-Dot Menu Styles */
+        .menu-container { position: relative; display: inline-block; }
+        .dots-btn { background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; padding: 4px 10px; width: auto; font-weight: bold; }
+        .dropdown-menu { display: none; position: absolute; right: 0; top: 30px; background: #2a2a2a; border: 1px solid #444; border-radius: 6px; z-index: 10; min-width: 110px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+        .dropdown-menu.show { display: block; }
+        .dropdown-menu button { background: none; border: none; color: #fff; padding: 10px 14px; text-align: left; width: 100%; cursor: pointer; font-size: 13px; border-bottom: 1px solid #333; }
+        .dropdown-menu button:last-child { border-bottom: none; }
+        .dropdown-menu button:hover { background: #333; }
+        .dropdown-menu button.delete-opt { color: #dc3545; }
+        
+        .cancel-edit-btn { background: #555; margin-top: 5px; display: none; }
+    </style>
+</head>
+<body>
+
+    <!-- Simple Login Overlay -->
+    <div id="login-overlay">
+        <div class="login-card">
+            <h2>Admin Login</h2>
+            <form id="login-form">
+                <input type="text" id="username" placeholder="Username" required autocomplete="username">
+                <input type="password" id="password" placeholder="Password" required autocomplete="current-password">
+                <button type="submit">Login</button>
+                <p id="login-error" style="color: #dc3545; font-size: 12px; margin-top: 10px; text-align: center; display: none;">Ghalat Username ya Password!</p>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Admin Container -->
+    <div class="container" id="admin-container">
+        <h1>
+            <span>Admin Control Panel</span>
+            <button class="logout-btn" onclick="logout()">Logout</button>
+        </h1>
+
+        <div class="card">
+            <h3 id="form-heading">Add New Game/App</h3>
+            <form id="add-form" style="margin-top: 10px;">
+                <input type="hidden" id="edit-id">
+                <input type="text" id="title" placeholder="Title" required>
+                <select id="type">
+                    <option value="game">Game</option>
+                    <option value="app">App</option>
+                </select>
+                <input type="text" id="version" placeholder="Version (e.g. v1.0)" required>
+                <input type="text" id="modInfo" placeholder="MOD Info">
+                <input type="text" id="iconUrl" placeholder="Icon Image URL" required>
+                <input type="text" id="downloadUrl" placeholder="Download Link" required>
+                <textarea id="description" placeholder="Description"></textarea>
+                <button type="submit" id="submit-btn">Publish to Firebase DB</button>
+                <button type="button" id="cancel-edit" class="cancel-edit-btn" onclick="resetForm()">Cancel Edit</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3>Database Items</h3>
+            <div id="items-list" style="margin-top: 10px;">Loading...</div>
+        </div>
+    </div>
+
+    <script>
+        // Yahan aap apna Username aur Password change kar sakte hain:
+        const CORRECT_USER = "admin";
+        const CORRECT_PASS = "12345";
+
+        // Check Session on Load
+        window.addEventListener('DOMContentLoaded', () => {
+            if (sessionStorage.getItem('m1_logged_in') === 'true') {
+                document.getElementById('login-overlay').style.display = 'none';
+                document.getElementById('admin-container').classList.add('active');
+                loadItems();
+            }
+        });
+
+        // Login Form Handler
+        document.getElementById('login-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const userInput = document.getElementById('username').value.trim();
+            const passInput = document.getElementById('password').value.trim();
+
+            if (userInput === CORRECT_USER && passInput === CORRECT_PASS) {
+                sessionStorage.setItem('m1_logged_in', 'true');
+                document.getElementById('login-overlay').style.display = 'none';
+                document.getElementById('admin-container').classList.add('active');
+                loadItems();
+            } else {
+                document.getElementById('login-error').style.display = 'block';
+            }
+        });
+
+        function logout() {
+            sessionStorage.removeItem('m1_logged_in');
+            location.reload();
+        }
+
+        // Firebase Config Setup
+        const firebaseConfig = {
+            apiKey: "AIzaSyDw_hwVCi59WtilhuWzZgKjklszD8__4pc",
+            authDomain: "m1store.firebaseapp.com",
+            projectId: "m1store",
+            storageBucket: "m1store.firebasestorage.app",
+            messagingSenderId: "1060599107791",
+            appId: "1:1060599107791:web:718ae17e0669a2a79627ba"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        async function loadItems() {
+            const list = document.getElementById('items-list');
+            list.innerHTML = 'Loading...';
+            try {
+                const snapshot = await db.collection("items").get();
+                if (snapshot.empty) {
+                    list.innerHTML = '<div>No items found in database.</div>';
+                    return;
+                }
+                let html = '';
+                snapshot.forEach(doc => {
+                    const i = doc.data();
+                    html += `
+                        <div class="item-row">
+                            <div>
+                                <strong>${i.title}</strong> (${i.type}) - ${i.version}
+                            </div>
+                            <div class="menu-container">
+                                <button class="dots-btn" onclick="toggleMenu(event, '${doc.id}')">⋮</button>
+                                <div class="dropdown-menu" id="menu-${doc.id}">
+                                    <button onclick="editItem('${doc.id}', '${escapeHtml(i.title)}', '${i.type}', '${i.version}', '${escapeHtml(i.modInfo || '')}', '${i.iconUrl}', '${i.downloadUrl}', '${escapeHtml(i.description || '')}')">Edit</button>
+                                    <button class="delete-opt" onclick="deleteItem('${doc.id}')">Delete</button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                list.innerHTML = html;
+            } catch (err) {
+                console.error(err);
+                list.innerHTML = '<div style="color:red;">Error loading items. Check console.</div>';
+            }
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+        }
+
+        // Toggle 3-dot dropdown menu
+        function toggleMenu(event, id) {
+            event.stopPropagation();
+            document.querySelectorAll('.dropdown-menu').forEach(m => {
+                if(m.id !== 'menu-' + id) m.classList.remove('show');
+            });
+            const menu = document.getElementById('menu-' + id);
+            menu.classList.toggle('show');
+        }
+
+        // Close dropdowns when clicking outside
+        window.addEventListener('click', () => {
+            document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('show'));
+        });
+
+        // Add or Update Form Submission
+        document.getElementById('add-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('submit-btn');
+            const editId = document.getElementById('edit-id').value;
+            
+            btn.innerText = editId ? 'Updating...' : 'Publishing...';
+            btn.disabled = true;
+
+            const payload = {
+                title: document.getElementById('title').value,
+                type: document.getElementById('type').value,
+                version: document.getElementById('version').value,
+                modInfo: document.getElementById('modInfo').value,
+                iconUrl: document.getElementById('iconUrl').value,
+                downloadUrl: document.getElementById('downloadUrl').value,
+                description: document.getElementById('description').value,
+            };
+
+            try {
+                if (editId) {
+                    await db.collection("items").doc(editId).update(payload);
+                    alert('Item updated successfully!');
+                } else {
+                    payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+                    await db.collection("items").add(payload);
+                }
+                resetForm();
+                loadItems();
+            } catch (err) {
+                alert('Error: ' + err.message);
+            } finally {
+                btn.innerText = 'Publish to Firebase DB';
+                btn.disabled = false;
+            }
+        });
+
+        function editItem(id, title, type, version, modInfo, iconUrl, downloadUrl, description) {
+            document.getElementById('edit-id').value = id;
+            document.getElementById('title').value = title;
+            document.getElementById('type').value = type;
+            document.getElementById('version').value = version;
+            document.getElementById('modInfo').value = modInfo;
+            document.getElementById('iconUrl').value = iconUrl;
+            document.getElementById('downloadUrl').value = downloadUrl;
+            document.getElementById('description').value = description;
+
+            document.getElementById('form-heading').innerText = 'Edit Game / App';
+            document.getElementById('submit-btn').innerText = 'Update Item in DB';
+            document.getElementById('cancel-edit').style.display = 'block';
+
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function resetForm() {
+            document.getElementById('add-form').reset();
+            document.getElementById('edit-id').value = '';
+            document.getElementById('form-heading').innerText = 'Add New Game/App';
+            document.getElementById('submit-btn').innerText = 'Publish to Firebase DB';
+            document.getElementById('cancel-edit').style.display = 'none';
+        }
+
+        async function deleteItem(id) {
+            if (confirm('Kya aap waqai is record ko delete karna chahte hain?')) {
+                try {
+                    await db.collection("items").doc(id).delete();
+                    loadItems();
+                } catch (err) {
+                    alert('Error deleting item: ' + err.message);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
