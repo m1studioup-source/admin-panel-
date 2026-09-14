@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APKVISION Admin Panel - Secure</title>
+
+    <!-- Firebase Compatibility SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+        body { background: #121212; color: #fff; padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        .container { max-width: 800px; width: 100%; display: none; }
+        .container.active { display: block; }
+        
+        /* Login Overlay Styles */
+        #login-overlay { position: fixed; inset: 0; background: #121212; display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 20px; }
+        .login-card { background: #1e1e1e; padding: 30px; border-radius: 8px; width: 100%; max-width: 400px; border: 1px solid #333; box-shadow: 0 8px 16px rgba(0,0,0,0.5); }
+        .login-card h2 { color: #e52d42; margin-bottom: 20px; text-align: center; }
+
+        h1 { margin-bottom: 20px; color: #e52d42; display: flex; justify-content: space-between; align-items: center; }
+        .logout-btn { background: #333; width: auto; padding: 6px 12px; font-size: 12px; cursor: pointer; border-radius: 4px; color: #fff; border: none; }
+        
+        .card { background: #1e1e1e; padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #333; }
+        input, select, textarea { width: 100%; padding: 10px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #444; background: #2a2a2a; color: #fff; }
+        select { cursor: pointer; }
+        button { width: 100%; padding: 12px; background: #e52d42; color: #fff; border: none; font-weight: bold; border-radius: 4px; cursor: pointer; }
+        button:hover { opacity: 0.9; }
+
+        .item-row { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #333; position: relative; gap: 10px; }
+        .item-info { display: flex; align-items: center; gap: 12px; overflow: hidden; }
+        .item-thumb { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; background: #333; flex-shrink: 0; }
+        .item-details { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        
+        /* 3-Dot Menu Styles */
+        .menu-container { position: relative; display: inline-block; flex-shrink: 0; }
+        .dots-btn { background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; padding: 4px 10px; width: auto; font-weight: bold; }
+        .dropdown-menu { display: none; position: absolute; right: 0; top: 30px; background: #2a2a2a; border: 1px solid #444; border-radius: 6px; z-index: 10; min-width: 110px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+        .dropdown-menu.show { display: block; }
+        .dropdown-menu button { background: none; border: none; color: #fff; padding: 10px 14px; text-align: left; width: 100%; cursor: pointer; font-size: 13px; border-bottom: 1px solid #333; }
+        .dropdown-menu button:last-child { border-bottom: none; }
+        .dropdown-menu button:hover { background: #333; }
+        .dropdown-menu button.delete-opt { color: #dc3545; }
+        
+        .cancel-edit-btn { background: #555; margin-top: 5px; display: none; }
+        
+        /* Custom In-App Modal / Popup Styles */
+        #custom-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none; justify-content: center; align-items: center; z-index: 3000; padding: 20px; }
+        .modal-card { background: #1e1e1e; border: 1px solid #444; border-radius: 8px; width: 100%; max-width: 350px; padding: 20px; text-align: center; box-shadow: 0 8px 24px rgba(0,0,0,0.6); }
+        .modal-card h3 { color: #fff; margin-bottom: 10px; font-size: 18px; }
+        .modal-card p { color: #aaa; font-size: 14px; margin-bottom: 20px; }
+        .modal-actions { display: flex; gap: 10px; }
+        .modal-actions button { padding: 10px; border-radius: 4px; font-weight: bold; border: none; cursor: pointer; width: 100%; }
+        .btn-cancel { background: #333; color: #fff; }
+        .btn-confirm { background: #e52d42; color: #fff; }
+    </style>
+</head>
+<body>
+
+    <!-- Custom In-App Modal -->
+    <div id="custom-modal">
+        <div class="modal-card">
+            <h3 id="modal-title">Notice</h3>
+            <p id="modal-desc">Message goes here...</p>
+            <div class="modal-actions" id="modal-actions">
+                <button class="btn-confirm" onclick="closeModal()">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Simple Login Overlay -->
+    <div id="login-overlay">
+        <div class="login-card">
+            <h2>Admin Login</h2>
+            <form id="login-form">
+                <input type="text" id="username" placeholder="Username" required autocomplete="username">
+                <input type="password" id="password" placeholder="Password" required autocomplete="current-password">
+                <button type="submit">Login</button>
+                <p id="login-error" style="color: #dc3545; font-size: 12px; margin-top: 10px; text-align: center; display: none;">Ghalat Username ya Password!</p>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Admin Container -->
+    <div class="container" id="admin-container">
+        <h1>
+            <span>Admin Control Panel</span>
+            <button class="logout-btn" onclick="logout()">Logout</button>
+        </h1>
+
+        <div class="card">
+            <h3 id="form-heading">Add New Game/App</h3>
+            <form id="add-form" style="margin-top: 10px;">
+                <input type="hidden" id="edit-id">
+                
+                <input type="text" id="title" placeholder="Title" required>
+
+                <label style="font-size: 12px; color: #aaa; display: block; margin-bottom: 4px;">Item Type</label>
+                <select id="type" onchange="updateCategories()" required>
+                    <option value="game">Game</option>
+                    <option value="app">App</option>
+                </select>
+
+                <label style="font-size: 12px; color: #aaa; display: block; margin-bottom: 4px;">Website Section / Category</label>
+                <select id="category">
+                    <!-- Populated dynamically via JS -->
+                </select>
+
+                <input type="text" id="version" placeholder="Version (e.g. v1.0)" required>
+                <input type="text" id="modInfo" placeholder="MOD Info">
+                <input type="text" id="iconUrl" placeholder="Icon Image URL" required>
+                <input type="text" id="downloadUrl" placeholder="Download Link" required>
+                <textarea id="description" placeholder="Description"></textarea>
+                <button type="submit" id="submit-btn">Publish to Firebase DB</button>
+                <button type="button" id="cancel-edit" class="cancel-edit-btn" onclick="resetForm()">Cancel Edit</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3>Database Items</h3>
+            <input type="text" id="search-box" placeholder="Search games/apps..." onkeyup="filterItems()" style="margin-top: 10px;">
+            <div id="items-list" style="margin-top: 10px;">Loading...</div>
+        </div>
+    </div>
+
+    <script>
+        const CORRECT_USER = "admin";
+        const CORRECT_PASS = "12345";
+        let allItemsData = [];
+
+        window.addEventListener('DOMContentLoaded', () => {
+            updateCategories(); // Initialize categories on load
+            if (sessionStorage.getItem('m1_logged_in') === 'true') {
+                document.getElementById('login-overlay').style.display = 'none';
+                document.getElementById('admin-container').classList.add('active');
+                loadItems();
+            }
+        });
+
+        function updateCategories(selectedCategory = 'none') {
+            const type = document.getElementById('type').value;
+            const categorySelect = document.getElementById('category');
+            categorySelect.innerHTML = '';
+
+            let options = '';
+            if (type === 'game') {
+                options = `
+                    <option value="none">None (General Section Only)</option>
+                    <option value="best-new">Best New Releases (Games)</option>
+                    <option value="top-games">Top Games</option>
+                `;
+            } else {
+                options = `
+                    <option value="none">None (General Section Only)</option>
+                    <option value="editors-choice">Editor's Choice Apps</option>
+                    <option value="top-apps">Top Apps</option>
+                `;
+            }
+            categorySelect.innerHTML = options;
+            
+            if([...categorySelect.options].some(o => o.value === selectedCategory)) {
+                categorySelect.value = selectedCategory;
+            } else {
+                categorySelect.value = 'none';
+            }
+        }
+
+        document.getElementById('login-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const userInput = document.getElementById('username').value.trim();
+            const passInput = document.getElementById('password').value.trim();
+
+            if (userInput === CORRECT_USER && passInput === CORRECT_PASS) {
+                sessionStorage.setItem('m1_logged_in', 'true');
+                document.getElementById('login-overlay').style.display = 'none';
+                document.getElementById('admin-container').classList.add('active');
+                loadItems();
+            } else {
+                document.getElementById('login-error').style.display = 'block';
+            }
+        });
+
+        function logout() {
+            sessionStorage.removeItem('m1_logged_in');
+            location.reload();
+        }
+
+        function showModal(title, desc, isConfirm = false, onConfirm = null) {
+            const modal = document.getElementById('custom-modal');
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-desc').innerText = desc;
+            const actions = document.getElementById('modal-actions');
+
+            if (isConfirm) {
+                actions.innerHTML = `
+                    <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+                    <button class="btn-confirm" id="modal-yes-btn">Delete</button>
+                `;
+                document.getElementById('modal-yes-btn').onclick = () => {
+                    closeModal();
+                    if (onConfirm) onConfirm();
+                };
+            } else {
+                actions.innerHTML = `<button class="btn-confirm" onclick="closeModal()">OK</button>`;
+            }
+            modal.style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('custom-modal').style.display = 'none';
+        }
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDw_hwVCi59WtilhuWzZgKjklszD8__4pc",
+            authDomain: "m1store.firebaseapp.com",
+            projectId: "m1store",
+            storageBucket: "m1store.firebasestorage.app",
+            messagingSenderId: "1060599107791",
+            appId: "1:1060599107791:web:718ae17e0669a2a79627ba"
+        };
+
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.firestore();
+
+        async function loadItems() {
+            const list = document.getElementById('items-list');
+            list.innerHTML = 'Loading...';
+            try {
+                const snapshot = await db.collection("items").get();
+                if (snapshot.empty) {
+                    list.innerHTML = '<div>No items found in database.</div>';
+                    allItemsData = [];
+                    return;
+                }
+                allItemsData = [];
+                snapshot.forEach(doc => {
+                    allItemsData.push({ id: doc.id, ...doc.data() });
+                });
+                renderItems(allItemsData);
+            } catch (err) {
+                console.error(err);
+                list.innerHTML = '<div style="color:red;">Error loading items. Check console.</div>';
+            }
+        }
+
+        function renderItems(items) {
+            const list = document.getElementById('items-list');
+            if (items.length === 0) {
+                list.innerHTML = '<div>No matching items found.</div>';
+                return;
+            }
+            let html = '';
+            items.forEach(i => {
+                html += `
+                    <div class="item-row">
+                        <div class="item-info">
+                            <img src="${i.iconUrl || ''}" class="item-thumb" onerror="this.src='https://via.placeholder.com/40?text=App'">
+                            <div class="item-details">
+                                <strong>${i.title}</strong> (${i.type} / ${i.category || 'none'})<br><small style="color: #aaa;">Ver: ${i.version}</small>
+                            </div>
+                        </div>
+                        <div class="menu-container">
+                            <button class="dots-btn" onclick="toggleMenu(event, '${i.id}')">⋮</button>
+                            <div class="dropdown-menu" id="menu-${i.id}">
+                                <button onclick="editItemById('${i.id}')">Edit</button>
+                                <button class="delete-opt" onclick="confirmDelete('${i.id}', '${(i.title || '').replace(/'/g, "\\'")}')">Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            list.innerHTML = html;
+        }
+
+        function filterItems() {
+            const query = document.getElementById('search-box').value.toLowerCase();
+            const filtered = allItemsData.filter(i => 
+                (i.title && i.title.toLowerCase().includes(query)) || 
+                (i.version && i.version.toLowerCase().includes(query)) ||
+                (i.type && i.type.toLowerCase().includes(query)) ||
+                (i.category && i.category.toLowerCase().includes(query))
+            );
+            renderItems(filtered);
+        }
+
+        window.addEventListener('click', () => {
+            document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('show'));
+        });
+
+        function toggleMenu(event, id) {
+            event.stopPropagation();
+            document.querySelectorAll('.dropdown-menu').forEach(m => {
+                if(m.id !== 'menu-' + id) m.classList.remove('show');
+            });
+            const menu = document.getElementById('menu-' + id);
+            menu.classList.toggle('show');
+        }
+
+        document.getElementById('add-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('submit-btn');
+            const editId = document.getElementById('edit-id').value;
+            
+            btn.innerText = editId ? 'Updating...' : 'Publishing...';
+            btn.disabled = true;
+
+            const payload = {
+                title: document.getElementById('title').value,
+                type: document.getElementById('type').value,
+                category: document.getElementById('category').value,
+                version: document.getElementById('version').value,
+                modInfo: document.getElementById('modInfo').value,
+                iconUrl: document.getElementById('iconUrl').value,
+                downloadUrl: document.getElementById('downloadUrl').value,
+                description: document.getElementById('description').value,
+            };
+
+            try {
+                if (editId) {
+                    await db.collection("items").doc(editId).update(payload);
+                    showModal('Success', 'Item updated successfully!');
+                } else {
+                    payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+                    await db.collection("items").add(payload);
+                    showModal('Success', 'Item published successfully!');
+                }
+                resetForm();
+                loadItems();
+            } catch (err) {
+                showModal('Error', 'Error: ' + err.message);
+            } finally {
+                btn.innerText = 'Publish to Firebase DB';
+                btn.disabled = false;
+            }
+        });
+
+        function editItemById(id) {
+            const item = allItemsData.find(i => i.id === id);
+            if (!item) return;
+
+            document.getElementById('edit-id').value = item.id;
+            document.getElementById('title').value = item.title || '';
+            document.getElementById('type').value = item.type || 'game';
+            
+            updateCategories(item.category || 'none');
+
+            document.getElementById('version').value = item.version || '';
+            document.getElementById('modInfo').value = item.modInfo || '';
+            document.getElementById('iconUrl').value = item.iconUrl || '';
+            document.getElementById('downloadUrl').value = item.downloadUrl || '';
+            document.getElementById('description').value = item.description || '';
+
+            document.getElementById('form-heading').innerText = 'Edit Game / App';
+            document.getElementById('submit-btn').innerText = 'Update Item in DB';
+            document.getElementById('cancel-edit').style.display = 'block';
+
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function resetForm() {
+            document.getElementById('add-form').reset();
+            document.getElementById('edit-id').value = '';
+            document.getElementById('type').value = 'game';
+            updateCategories('none');
+            document.getElementById('form-heading').innerText = 'Add New Game/App';
+            document.getElementById('submit-btn').innerText = 'Publish to Firebase DB';
+            document.getElementById('cancel-edit').style.display = 'none';
+        }
+
+        function confirmDelete(id, title) {
+            showModal('Confirm Delete', `Kya aap waqai "${title}" ko delete karna chahte hain?`, true, async () => {
+                try {
+                    await db.collection("items").doc(id).delete();
+                    showModal('Deleted', 'Item successfully deleted from database.');
+                    loadItems();
+                } catch (err) {
+                    showModal('Error', 'Error deleting item: ' + err.message);
+                }
+            });
+        }
+    </script>
+</body>
+</html>
